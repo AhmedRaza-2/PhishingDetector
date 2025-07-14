@@ -1,0 +1,20 @@
+1.develop outlook plugin to automatically scan and classify incoming emails
+2. flag phishing emails and send them into a folder
+
+model detection enhancements
+1. text based (text inside body)
+2. URL detection and analysis
+3. file attachment detection and analysis
+
+continuous learning
+develop capability to manually report an email as phishing, the model shall be able to analyze and learn based on it.
+MVP
+
+Final year project
+1. Integration with university mail/SMTP (GMAIL) service
+2. If email detected as phishing, add a header in the subject
+3. Develop a centralized dashboard for analysis and reporting in certain duration e.g. 24 hrs, 1 week
+	-How many emails were processed
+	-How many were clean
+	-How many were detected as phishing
+vector embeddings
