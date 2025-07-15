@@ -5,23 +5,15 @@ import pandas as pd
 from urllib.parse import urlparse
 from scipy.sparse import hstack, csr_matrix
 import logging
-# ------------------ Logging Setup ------------------
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# ------------------ Flask App Init ------------------
 app = Flask(__name__)
 
-# ------------------ Load Model and Vectorizer ------------------
-try:
-    logging.info("🔄 Loading model and vectorizer...")
-    model = joblib.load("phishing_model.joblib")
-    vectorizer = joblib.load("tfidf_vectorizer.joblib")
-    sender_columns = joblib.load("sender_columns.joblib")  
-    logging.info("✅ Model and vectorizer loaded successfully.")
-except Exception as e:
-    logging.error("❌ Error loading model/vectorizer: %s", str(e))
-    raise e
-# ------------------ Helper Functions ------------------
+# Load model and vectorizer
+model = joblib.load("phishing_model.joblib")
+vectorizer = joblib.load("tfidf_vectorizer.joblib")
+sender_columns = joblib.load("sender_columns.joblib")
+
+# Helpers
 def preprocess_text(text):
     if isinstance(text, str):
         text = text.lower()
@@ -55,49 +47,54 @@ def extract_sender_domain(sender):
         return domain.lower()
     except:
         return ''
-# ------------------ Prediction Route ------------------
+
+def score_attachments(attachments):
+    suspicious_exts = {".exe", ".bat", ".cmd", ".vbs", ".js", ".scr", ".ps1", ".wsf", ".jar", ".com", ".docm", ".xlsm"}
+    score = 0
+    for att in attachments:
+        if att.get("extension", "").lower() in suspicious_exts:
+            score += 1
+    return score
+
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
         data = request.get_json()
-        logging.info("📨 Received request for prediction.")
 
-        # Get fields
         subject = data.get("subject", "")
         body = data.get("body", "")
         sender = data.get("sender", "")
         urls = data.get("urls", [])
+        attachments = data.get("attachments", [])
 
-        # === TF-IDF Text Processing ===
-        full_text = f"{subject} {body}"
-        cleaned_text = preprocess_text(full_text)
+        cleaned_text = preprocess_text(f"{subject} {body}")
         X_text = vectorizer.transform([cleaned_text])
 
-        # === URL Features ===
         url_feats = extract_url_features(urls)
         X_url = csr_matrix([url_feats])
 
-        # === Sender Domain Dummies ===
         domain = extract_sender_domain(sender)
-        sender_vec = [1 if domain == col else 0 for col in sender_columns]
-        X_sender = csr_matrix([sender_vec])
+        X_sender = csr_matrix([[1 if domain == col else 0 for col in sender_columns]])
 
-        # === Combine Features ===
         X_combined = hstack([X_text, X_url, X_sender])
-        logging.info(f"🔎 Combined input shape: {X_combined.shape}")
 
-        # === Predict ===
         prediction = model.predict(X_combined)[0]
         confidence = model.predict_proba(X_combined)[0][1]
-        threshold = 0.6  # 👈 you can experiment with 0.6, 0.7, 0.8, etc.
-        result = "PHISHING" if confidence >= threshold else "SAFE"
+        result = "PHISHING" if confidence >= 0.6 else "SAFE"
 
-        logging.info(f"✅ Prediction: {result} (Confidence: {confidence:.3f})")
-        return jsonify({"result": result, "confidence": round(confidence, 3)})
+        url_score = sum([1 for url in urls if "@" in url or len(url) > 150])
+        attachment_score = score_attachments(attachments)
+
+        return jsonify({
+            "result": result,
+            "confidence": round(confidence, 3),
+            "url_score": url_score,
+            "attachment_score": attachment_score
+        })
+
     except Exception as e:
-        logging.error(f"❌ Prediction Error: {str(e)}")
-        return jsonify({"error": "Prediction failed"}), 500
-# ------------------ Run App ------------------
-if __name__ == '__main__':
-    logging.info("🚀 Starting phishing detection API server...")
+        logging.error("Prediction failed: %s", str(e))
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
     app.run(port=5000)
