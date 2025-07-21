@@ -5,6 +5,7 @@ import pandas as pd
 from urllib.parse import urlparse
 from scipy.sparse import hstack, csr_matrix
 import logging
+import json
 
 app = Flask(__name__)
 
@@ -55,6 +56,23 @@ def score_attachments(attachments):
         if att.get("extension", "").lower() in suspicious_exts:
             score += 1
     return score
+def log_prediction(data, prediction):
+    try:
+        log_data = {
+            "sender": data.get("sender", ""),
+            "receiver": data.get("receiver", ""),
+            "subject": data.get("subject", ""),
+            "body": data.get("body", "")[:100],
+            "label": 1 if prediction == "PHISHING" else 0,
+            "urls": 1 if data.get("urls") else 0,
+        }
+
+        with open("all_predictions_log.json", "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_data) + "\n")
+
+        logging.info("📥 Email logged successfully.")
+    except Exception as e:
+        logging.warning("⚠️ Failed to log prediction: %s", str(e))
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -80,8 +98,10 @@ def predict():
 
         prediction = model.predict(X_combined)[0]
         confidence = model.predict_proba(X_combined)[0][1]
-        result = "PHISHING" if confidence >= 0.6 else "SAFE"
 
+        result = "PHISHING" if confidence >= 0.6 else "SAFE"
+        # Save every prediction (safe or phishing)
+        log_prediction(data, result)
         url_score = sum([1 for url in urls if "@" in url or len(url) > 150])
         attachment_score = score_attachments(attachments)
 
